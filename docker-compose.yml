@@ -1,0 +1,157 @@
+version: '3.7'
+services:
+# Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+# Kafka
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+
+# Zipkin
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+
+# Eureka Server
+  eureka-server:
+    image: ss871104/eureka-server:latest
+    container_name: eureka-server
+    pull_policy: always
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING.ZIPKIN.BASEURL=http://zipkin:9411/
+    depends_on:
+      - zipkin
+
+# Api Gateway
+  api-gateway:
+    image: ss871104/api-gateway:latest
+    container_name: api-gateway
+    pull_policy: always
+    ports:
+      - "8083:8083"
+    expose:
+      - "8083"
+    environment:
+      - SPRING.ZIPKIN.BASEURL=http://zipkin:9411/
+      - EUREKA.CLIENT.SERVICEURL.DEFAULTZONE=http://eureka-server:8761/eureka
+    depends_on:
+      - zipkin
+      - eureka-server
+
+# Customer-Service Docker Compose Config
+  customer:
+    image: ss871104/customer:latest
+    container_name: customer-service
+    pull_policy: always
+    ports:
+      - "8000:8000"
+    environment:
+      - SPRING.ZIPKIN.BASEURL=http://zipkin:9411/
+      - EUREKA.CLIENT.SERVICEURL.DEFAULTZONE=http://eureka-server:8761/eureka
+    depends_on:
+      - eureka-server
+      - api-gateway
+      - zipkin
+
+# Product-Service Docker Compose Config
+  product:
+    image: ss871104/product:latest
+    container_name: product-service
+    pull_policy: always
+    ports:
+      - "8100:8100"
+    environment:
+      - SPRING.ZIPKIN.BASEURL=http://zipkin:9411/
+      - EUREKA.CLIENT.SERVICEURL.DEFAULTZONE=http://eureka-server:8761/eureka
+    depends_on:
+      - eureka-server
+      - api-gateway
+      - zipkin
+
+# Order-Service Docker Compose Config
+  order:
+    image: ss871104/order:latest
+    container_name: order-service
+    pull_policy: always
+    ports:
+      - "8200:8200"
+    environment:
+      - SPRING.ZIPKIN.BASEURL=http://zipkin:9411/
+      - EUREKA.CLIENT.SERVICEURL.DEFAULTZONE=http://eureka-server:8761/eureka
+      - SPRING.KAFKA.BOOTSTRAP-SERVERS=kafka:29092
+    depends_on:
+      - eureka-server
+      - api-gateway
+      - zipkin
+      - kafka
+
+# Notification-Service Docker Compose Config
+  notification:
+    image: ss871104/notification:latest
+    container_name: notification-service
+    pull_policy: always
+    ports:
+      - "8300:8300"
+    environment:
+      - SPRING.ZIPKIN.BASEURL=http://zipkin:9411/
+      - EUREKA.CLIENT.SERVICEURL.DEFAULTZONE=http://eureka-server:8761/eureka
+      - SPRING.KAFKA.BOOTSTRAP-SERVERS=kafka:29092
+    depends_on:
+      - eureka-server
+      - api-gateway
+      - zipkin
+      - kafka
+
+# Prometheus
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - customer
+      - product
+      - order
+      - notification
+
+# Grafana
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    links:
+      - prometheus:prometheus
+    volumes:
+      - ./grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=password

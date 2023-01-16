@@ -1,0 +1,90 @@
+server:
+  port: 8200
+
+spring:
+  application:
+    name: order
+  zipkin:
+    base-url: http://localhost:9411
+  sleuth:
+    sampler:
+      probability: 1.0
+  jpa:
+    show-sql: true
+    defer-datasource-initialization: true
+  datasource:
+    url: jdbc:h2:mem:order
+    username: sa
+    password: password
+    driverClassName: org.h2.Driver
+  h2:
+    console:
+      enabled: true
+      settings:
+        web-allow-others: true
+
+# Kafka
+  kafka:
+    bootstrap-servers: localhost:9092
+    template:
+      default-topic: notificationTopic
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring:
+          json:
+            type:
+              mapping: event:com.ss871104.order.event.OrderPlacedEvent
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+    fetch-registry: true
+    register-with-eureka: true
+    enabled: true
+
+# Actuator Prometheus Endpoint
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+
+# CircuitBreaker
+resilience4j:
+# retry 5 times if fail
+  retry:
+    instances:
+      default:
+        maxAttempts: 5
+        waitDuration: 1s
+        enableExponentialBackoff: true
+# directly call fallback method after 90 times of api call fail
+  circuitbreaker:
+    instances:
+      default:
+        failureRateThreshold: 90
+# allow 2 api calls in 10 seconds
+  ratelimiter:
+    instances:
+      default:
+        limitForPeriod: 2
+        limitRefreshPeriod: 10s
+# allow 10 concurrent api calls
+  bulkhead:
+    instances:
+      default:
+        maxConcurrentCalls: 10
+
+## Jaeger config
+#opentracing:
+#  jaeger:
+#    enabled: true
+#    log-spans: true
+#    const-sampler:
+#      decision: true
+#    udp-sender:
+#      host: localhost
+#      port: 6831

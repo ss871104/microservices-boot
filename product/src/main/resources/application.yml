@@ -1,0 +1,50 @@
+server:
+  port: 8100
+
+spring:
+  application:
+    name: product
+  zipkin:
+    base-url: http://localhost:9411
+  sleuth:
+    sampler:
+      probability: 1.0
+  jpa:
+    show-sql: true
+    defer-datasource-initialization: true
+  datasource:
+    url: jdbc:h2:mem:product
+    username: sa
+    password: password
+    driverClassName: org.h2.Driver
+  h2:
+    console:
+      enabled: true
+      settings:
+        web-allow-others: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+    fetch-registry: true
+    register-with-eureka: true
+    enabled: true
+
+# Actuator Prometheus Endpoint
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+
+## Jaeger config
+#opentracing:
+#  jaeger:
+#    enabled: true
+#    log-spans: true
+#    const-sampler:
+#      decision: true
+#    udp-sender:
+#      host: localhost
+#      port: 6831
