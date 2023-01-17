@@ -52,7 +52,7 @@ management:
       exposure:
         include: prometheus
 
-# CircuitBreaker
+# Resilience4j
 resilience4j:
 # retry 5 times if fail
   retry:
