@@ -37,6 +37,8 @@ docker run --name grafana -d -p 3000:3000 grafana/grafana
 最後，照順序將 server 開啟，即可測試 api 功能：<br>
 eureka-server -> customer -> product -> order -> notification -> api gateway
 
+---
+
 2. **Docker Container 方式啟動：**
 
 docker images 已經都 push 到我的 docker repository了，可以直接pull 做使用，以下是執行 docker compose 指令(要先 cd 到 docker compose 所在資料夾)
@@ -758,3 +760,4 @@ Docker 是一種軟體平台，可讓您快速地建立、測試和部署應用�
     ```
 
 ## **Kubernetes**
+To be Continue...
