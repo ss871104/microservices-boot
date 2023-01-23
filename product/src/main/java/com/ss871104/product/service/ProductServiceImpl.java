@@ -8,8 +8,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import javax.transaction.Transactional;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -23,58 +24,50 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public List<ProductResponse> updateOrderedProductsQuantity(ProductRequest productRequest) {
-        List<ProductResponse> productResponseList = new ArrayList<>();
-        boolean check = true;
 
-        for (Long key : productRequest.getOrderedProductsAndQuantity().keySet()) {
-            ProductResponse productResponse = productRepository.checkProductByIdAndQuantity(key, productRequest.getOrderedProductsAndQuantity().get(key));
-            if (!productResponse.isProductCheck()) {
-                check = false;
-            }
-            productResponseList.add(productResponse);
+        List<ProductResponse> productResponseList = productRequest.getOrderedProductsAndQuantity().keySet().stream().map(x ->
+            productRepository.checkProductByIdAndQuantity(x, productRequest.getOrderedProductsAndQuantity().get(x)))
+                .collect(Collectors.toList());
+
+        // check if product quantity enough for the order
+        if (productResponseList.stream().allMatch(ProductResponse::isProductCheck)) {
+            return productResponseList.stream().map(productResponse -> {
+                    Product product = new Product();
+                    product.setId(productResponse.getId());
+                    product.setName(productResponse.getName());
+                    product.setPrice(productResponse.getPrice());
+                    product.setQuantity(productResponse.getTotalQuantityLeft() - productRequest.getOrderedProductsAndQuantity().get(productResponse.getId()));
+                    productRepository.save(product);
+                    return mapToProductResponse(product);
+                }).collect(Collectors.toList());
         }
 
-        if (check) {
-            for (ProductResponse productResponse : productResponseList) {
-                Product product = new Product();
-                product.setId(productResponse.getId());
-                product.setName(productResponse.getName());
-                product.setPrice(productResponse.getPrice());
-                product.setQuantity(productResponse.getTotalQuantityLeft() - productRequest.getOrderedProductsAndQuantity().get(productResponse.getId()));
-                productRepository.save(product);
-
-            }
-        }
         return productResponseList;
 
     }
 
     private List<ProductResponse> mapToProductResponseList(List<Product> productList) {
 
-        List<ProductResponse> productResponseList = new ArrayList<>();
-
-        for (Product product : productList) {
-            productResponseList.add(ProductResponse.builder()
+        return productList.stream().map(product ->
+            ProductResponse.builder()
                     .id(product.getId())
                     .name(product.getName())
                     .price(product.getPrice())
                     .totalQuantityLeft(product.getQuantity())
-                    .build());
-        }
-
-        return productResponseList;
+                    .build())
+                .collect(Collectors.toList());
     }
 
-//    private ProductResponse mapToProductResponse(Product product) {
-//
-//        ProductResponse.builder()
-//                .id(product.getId())
-//                .name(product.getName())
-//                .price(product.getPrice())
-//                .totalQuantityLeft(product.getQuantity())
-//                .build();
-//
-//
-//        return productResponse;
-//    }
+    private ProductResponse mapToProductResponse(Product product) {
+
+        return ProductResponse.builder()
+                .id(product.getId())
+                .name(product.getName())
+                .price(product.getPrice())
+                .totalQuantityLeft(product.getQuantity())
+                .productCheck(true)
+                .build();
+
+    }
+
 }

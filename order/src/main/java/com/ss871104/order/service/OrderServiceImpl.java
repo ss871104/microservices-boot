@@ -15,10 +15,9 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import javax.transaction.Transactional;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -30,7 +29,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderDetailRepository orderDetailRepository;
     private final CustomerProxy customerProxy;
     private final ProductProxy productProxy;
-    private final KafkaTemplate kafkaTemplate;
+    private final KafkaTemplate<String, OrderPlacedEvent> kafkaTemplate;
     @Override
     public List<OrderResponse> getOrdersByCustomerId(Long customerId) {
 
@@ -48,34 +47,26 @@ public class OrderServiceImpl implements OrderService {
         // 透過customerId取得order info -----------------------------------------------------------
         List<OrderResponse> orderResponses = getOrdersByCustomerId(customerId);
 
-        // new 一個orderIds list
-        List<Long> orderIds = new ArrayList<>();
         // 將order info獲得的orderIds放進orderIds list
-        orderResponses.stream().forEach(x -> orderIds.add(x.getOrderId()));
+        List<Long> orderIds = orderResponses.stream()
+                .map(OrderResponse::getOrderId).collect(Collectors.toList());
 
-        // new 一個List<OrderDetailResponse>物件
-        List<OrderDetailResponse> orderDetailResponses = new ArrayList<>();
         // 透過orderIds取得orderDetail info --------------------------------------------------------
-        orderDetailResponses = getOrderDetailsByOrderId(orderIds);
+        List<OrderDetailResponse> orderDetailResponses = getOrderDetailsByOrderId(orderIds);
 
-        // new 一個productIds list
-        List<Long> productIds = new ArrayList<>();
-        // 將orderDetail info獲得的productIds放進productIds list
-        orderDetailResponses.stream().forEach((x -> productIds.add(x.getProductId())));
+        // 取得orderDetailList裡有的productIds放進productIds list
+        List<Long> productIds = orderDetailResponses.stream()
+                .map(OrderDetailResponse::getProductId).collect(Collectors.toList());
 
-        // new 一個List<ProductResponse>物件
-        List<ProductResponse> productResponses = new ArrayList<>();
         // 透過ProductProxy使用product api取得product info --------------------------------------------------
-        productResponses = productProxy.retrieveProductInfo(productIds);
+        List<ProductResponse> productResponses = productProxy.retrieveProductInfo(productIds);
+
         // 參考leetcode 1，new 一個map，key為productId，value為對應的product info
-        Map<Long, ProductResponse> productMap = new HashMap<>();
-        productResponses.stream().forEach((x -> productMap.put(x.getId(), x)));
+        Map<Long, ProductResponse> productMap = productResponses.stream()
+                .collect(Collectors.toMap(ProductResponse::getId, Function.identity()));
+
         // 將product info放進orderDetailResponses
-        for (int i = 0; i < orderDetailResponses.size(); i++) {
-            if (productMap.containsKey(orderDetailResponses.get(i).getProductId())) {
-                orderDetailResponses.get(i).setProductInfo(productMap.get(orderDetailResponses.get(i).getProductId()));
-            }
-        }
+        orderDetailResponses.forEach(x -> x.setProductInfo(productMap.get(x.getProductId())));
 
 
         // 透過CustomerProxy使用customer api取得customer info -----------------------------------------------
@@ -85,8 +76,9 @@ public class OrderServiceImpl implements OrderService {
 
         // 將orderDetail info(orderDetailResponses)放進orderResponses
         // 將customer info放進orderResponses
-        orderResponses.stream().forEach((x -> {
-            List<OrderDetailResponse> orderDetailResponseList = finalOrderDetailResponses.stream().filter(d -> d.getOrderId() == x.getOrderId()).collect(Collectors.toList());
+        orderResponses.forEach((x -> {
+            List<OrderDetailResponse> orderDetailResponseList = finalOrderDetailResponses.stream()
+                    .filter(od -> od.getOrderId() == x.getOrderId()).collect(Collectors.toList());
             x.setOrderDetailList(orderDetailResponseList);
             x.setCustomerInfo(finalCustomerResponse);
         }));
@@ -102,27 +94,23 @@ public class OrderServiceImpl implements OrderService {
         newOrder.setTotalPrice(newOrderRequest.getTotalPrice());
         newOrder = orderRepository.save(newOrder);
 
-        orderRepository.flush();
         Long orderId = newOrder.getId();
 
-        for (Long key : newOrderRequest.getProductsIdAndQuantity().keySet()) {
-            OrderDetail newOrderDetail = new OrderDetail();
-            newOrderDetail.setOrderId(orderId);
-            newOrderDetail.setProductId(key);
-            newOrderDetail.setQuantity(newOrderRequest.getProductsIdAndQuantity().get(key));
-            orderDetailRepository.save(newOrderDetail);
-        }
+        newOrderRequest.getProductsIdAndQuantity().keySet()
+                .forEach(x -> {
+                    OrderDetail newOrderDetail = new OrderDetail();
+                    newOrderDetail.setOrderId(orderId);
+                    newOrderDetail.setProductId(x);
+                    newOrderDetail.setQuantity(newOrderRequest.getProductsIdAndQuantity().get(x));
+                    orderDetailRepository.save(newOrderDetail);
+                });
 
         try {
             // 確認product是否數量足夠，若足夠同時進行產品數量更新，若不足則回傳哪個productId的產品不足
             List<ProductResponse> productResponses = productProxy.orderReceivedUpdateQuantity(newOrderRequest.getProductsIdAndQuantity());
-            boolean checkIfProductUpdated = true;
-            for (ProductResponse productResponse : productResponses) {
-                if (!productResponse.isProductCheck()) {
-                    checkIfProductUpdated = false;
-                    break;
-                }
-            }
+            boolean checkIfProductUpdated = productResponses.stream()
+                    .allMatch(ProductResponse::isProductCheck);
+
             // 如果product有貨
             if (checkIfProductUpdated) {
                 // 發通知到kafka並且送到Notification service
@@ -136,10 +124,11 @@ public class OrderServiceImpl implements OrderService {
                 TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
 
                 StringBuilder result = new StringBuilder("Order Placed Failed, lack of inventory: ");
-                productResponses.stream().forEach((x -> {
-                    if (!x.isProductCheck())
-                        result.append("\nlack of " + x.getName() + ", item left: " + x.getTotalQuantityLeft());
-                }));
+
+                productResponses.stream()
+                                .filter(x -> !x.isProductCheck())
+                                .forEach(x -> result.append("\nlack of " + x.getName() + ", item left: " + x.getTotalQuantityLeft()));
+
                 // 發通知到kafka並且送到Notification service
                 LocalDateTime now = LocalDateTime.now();
                 kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(result.toString(), now));
@@ -160,31 +149,23 @@ public class OrderServiceImpl implements OrderService {
 
     private List<OrderResponse> mapToOrderResponseList(List<Order> orders) {
 
-        List<OrderResponse> orderResponseList = new ArrayList<>();
-
-        for (Order order : orders) {
-            orderResponseList.add(OrderResponse.builder()
-                    .orderId(order.getId())
-                    .totalPrice(order.getTotalPrice())
-                    .build());
-        }
-
-        return orderResponseList;
+        return orders.stream().map(order ->
+                OrderResponse.builder()
+                        .orderId(order.getId())
+                        .totalPrice(order.getTotalPrice())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     private List<OrderDetailResponse> mapToOrderDetailResponseList(List<OrderDetail> orderDetialList) {
 
-        List<OrderDetailResponse> orderDetailResponseList = new ArrayList<>();
-
-        for (OrderDetail orderDetail : orderDetialList) {
-            orderDetailResponseList.add(OrderDetailResponse.builder()
-                    .id(orderDetail.getId())
-                    .orderId(orderDetail.getOrderId())
-                    .productId(orderDetail.getProductId())
-                    .quantity(orderDetail.getQuantity())
-                    .build());
-        }
-
-        return orderDetailResponseList;
+        return orderDetialList.stream().map(orderDetail ->
+                        OrderDetailResponse.builder()
+                                .id(orderDetail.getId())
+                                .orderId(orderDetail.getOrderId())
+                                .productId(orderDetail.getProductId())
+                                .quantity(orderDetail.getQuantity())
+                                .build())
+                .collect(Collectors.toList());
     }
 }
