@@ -114,8 +114,7 @@ public class OrderServiceImpl implements OrderService {
             // 如果product有貨
             if (checkIfProductUpdated) {
                 // 發通知到kafka並且送到Notification service
-                LocalDateTime now = LocalDateTime.now();
-                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent("Order Placed Successfully, orderId: " + newOrder.getId(), now));
+                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent("Order Placed Successfully, orderId: " + newOrder.getId(), LocalDateTime.now()));
 
                 return "Order Confirmed";
             } // 如果product貨不足
@@ -130,8 +129,7 @@ public class OrderServiceImpl implements OrderService {
                                 .forEach(x -> result.append("\nlack of " + x.getName() + ", item left: " + x.getTotalQuantityLeft()));
 
                 // 發通知到kafka並且送到Notification service
-                LocalDateTime now = LocalDateTime.now();
-                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(result.toString(), now));
+                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(result.toString(), LocalDateTime.now()));
 
                 return result.toString();
             }
@@ -139,8 +137,7 @@ public class OrderServiceImpl implements OrderService {
         } catch (Exception e) {
             e.printStackTrace();
             // 發通知到kafka並且送到Notification service
-            LocalDateTime now = LocalDateTime.now();
-            kafkaTemplate.send("notificationTopic", new OrderPlacedEvent("Order Placed Failed, exception issue", now));
+            kafkaTemplate.send("notificationTopic", new OrderPlacedEvent("Order Placed Failed, exception issue", LocalDateTime.now()));
 
             return "something went wrong, please contact IT desk";
         }

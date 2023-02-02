@@ -735,6 +735,16 @@ Docker 是一種軟體平台，可讓您快速地建立、測試和部署應用�
                 <configuration>
                     <from>
                         <image>eclipse-temurin:17.0.4.1_1-jre</image>
+                        <platforms>
+                            <platform>
+                                <architecture>arm64</architecture>
+                                <os>linux</os>
+                            </platform>
+                            <platform>
+                                <architecture>amd64</architecture>
+                                <os>linux</os>
+                            </platform>
+                        </platforms>
                     </from>
                     <to><image>registry.hub.docker.com/docker 帳號/${artifactId}</image></to>
                 </configuration>
